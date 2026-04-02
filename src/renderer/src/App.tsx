@@ -1,46 +1,143 @@
-import { DndContext, DragEndEvent, useSensor, useSensors, PointerSensor } from '@dnd-kit/core'
+import { useState, useEffect } from 'react'
+import { DndContext, DragMoveEvent, DragEndEvent, DragStartEvent, useSensor, useSensors, PointerSensor } from '@dnd-kit/core'
 import { useNotesStore } from './store/useNotesStore'
 import { StickyNote } from './components/StickyNote'
 
 function App() {
-  const { notes, addNote, updateNotePosition } = useNotesStore()
+  const { notes, addNote, updateNotePosition, deleteNote } = useNotesStore()
+  
+  const [snapX, setSnapX] = useState<number | undefined>(undefined)
+  const [snapY, setSnapY] = useState<number | undefined>(undefined)
+  const [metrics, setMetrics] = useState<any[]>([])
+  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
 
-  // Sensores ajudam a distinguir entre clique e arrasto
-  const sensors = useSensors(useSensor(PointerSensor, {activationConstraint: { distance: 5 },}))
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  const SNAP_THRESHOLD = 15 
+
+  useEffect(() => {
+    if (!selectedNoteId) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement?.tagName === 'TEXTAREA') return;
+
+      const note = notes.find(n => n.id === selectedNoteId);
+      if (!note) return;
+
+      const step = e.shiftKey ? 10 : 1;
+
+      switch (e.key) {
+        case 'Delete':
+        case 'Backspace':
+          deleteNote(selectedNoteId);
+          setSelectedNoteId(null);
+          break;
+        case 'ArrowUp':
+          updateNotePosition(selectedNoteId, note.x, note.y - step);
+          break;
+        case 'ArrowDown':
+          updateNotePosition(selectedNoteId, note.x, note.y + step);
+          break;
+        case 'ArrowLeft':
+          updateNotePosition(selectedNoteId, note.x - step, note.y);
+          break;
+        case 'ArrowRight':
+          updateNotePosition(selectedNoteId, note.x + step, note.y);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedNoteId, notes, updateNotePosition, deleteNote]);
+
+  function handleDragStart() {
+    setSelectedNoteId(null);
+    const currentMetrics = notes.map(n => {
+      const el = document.getElementById(`note-${n.id}`);
+      const rect = el ? el.getBoundingClientRect() : { width: 280, height: 280 };
+      return {
+        id: n.id, x: n.x, y: n.y,
+        width: rect.width, height: rect.height,
+        centerX: n.x + rect.width / 2, centerY: n.y + rect.height / 2
+      };
+    });
+    setMetrics(currentMetrics);
+  }
+
+  function handleDragMove(event: DragMoveEvent) {
+    const { active, delta } = event;
+    const activeMetric = metrics.find(m => m.id === active.id);
+    if (!activeMetric) return;
+
+    const currX = activeMetric.x + delta.x;
+    const currY = activeMetric.y + delta.y;
+
+    let targetSnapX: number | undefined;
+    let targetSnapY: number | undefined;
+
+    const others = metrics.filter(m => m.id !== active.id);
+
+    for (const other of others) {
+      if (Math.abs(currX - other.x) < SNAP_THRESHOLD && Math.abs(currY - other.y) < 150) {
+        targetSnapX = other.x;
+      }
+      if (Math.abs(currY - other.y) < SNAP_THRESHOLD && Math.abs(currX - other.x) < 150) {
+        targetSnapY = other.y;
+      }
+    }
+
+    setSnapX(targetSnapX);
+    setSnapY(targetSnapY);
+  }
 
   function handleDragEnd(event: DragEndEvent) {
-    const { active, delta } = event
-    const note = notes.find((n) => n.id === active.id)
+    const { active, delta } = event;
+    const note = notes.find((n) => n.id === active.id);
     if (note) {
-      // Somamos a posição atual com o quanto ela foi movida (delta)
-      updateNotePosition(active.id as string, note.x + delta.x, note.y + delta.y)
+      updateNotePosition(active.id as string, snapX ?? note.x + delta.x, snapY ?? note.y + delta.y);
     }
+    setSnapX(undefined); setSnapY(undefined); setMetrics([]);
+    setSelectedNoteId(active.id as string);
   }
 
   return (
-    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-      <main className="h-screen w-screen bg-[#F5F5F7] relative overflow-hidden select-none">
-        {/* Camada de Fundo/Título */}
-        <div className="absolute top-10 left-12 pointer-events-none">
-          <h1 className="text-3xl font-bold text-black/10 tracking-tighter italic">Notes</h1>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
+      <main 
+        style={{ 
+          width: '100vw', 
+          height: '100vh', 
+          backgroundColor: '#F5F5F7', 
+          position: 'relative', 
+          overflow: 'hidden',
+          userSelect: 'none' 
+        }}
+        onPointerDown={(e) => {
+          if (e.target === e.currentTarget) setSelectedNoteId(null);
+        }}
+      >
+        <div style={{ position: 'absolute', top: '40px', left: '48px', pointerEvents: 'none' }}>
+          <h1 style={{ fontSize: '30px', fontWeight: 'bold', color: 'rgba(0,0,0,0.1)', fontStyle: 'italic', letterSpacing: '-1px' }}>Notes</h1>
         </div>
 
-        {/* Notas */}
         {notes.map((note) => (
-          <StickyNote key={note.id} {...note} />
+          <StickyNote 
+            key={note.id} 
+            {...note} 
+            snapX={snapX} 
+            snapY={snapY} 
+            isSelected={selectedNoteId === note.id}
+            onSelect={() => setSelectedNoteId(note.id)}
+          />
         ))}
 
-        {/* Botão Flutuante */}
-        <button
-          onClick={addNote}
-          className="absolute bottom-10 right-10 w-16 h-16 
-                    bg-white/80 backdrop-blur-md
-                    border border-white/50 text-gray-800
-                    rounded-full text-4xl font-light
-                    shadow-[0_10px_30px_rgba(0,0,0,0.1)]
-                    hover:scale-110 active:scale-95 
-                    transition-all flex items-center justify-center z-50
-                    hover:bg-white"
+        <button 
+          onClick={addNote} 
+          style={{
+            position: 'absolute', bottom: '40px', right: '40px', width: '64px', height: '64px',
+            backgroundColor: 'white', border: '1px solid rgba(0,0,0,0.05)', borderRadius: '50%', 
+            fontSize: '32px', fontWeight: '200', boxShadow: '0 10px 30px rgba(0,0,0,0.1)', 
+            cursor: 'pointer', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center'
+          }}
         >
           +
         </button>
@@ -49,4 +146,4 @@ function App() {
   )
 }
 
-export default App
+export default App; 
