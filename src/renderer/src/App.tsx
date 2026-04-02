@@ -3,55 +3,141 @@ import { DndContext, DragMoveEvent, DragEndEvent, DragStartEvent, useSensor, use
 import { useNotesStore } from './store/useNotesStore'
 import { StickyNote } from './components/StickyNote'
 
+
 function App() {
-  const { notes, addNote, updateNotePosition, deleteNote } = useNotesStore()
-  
+  const { notes, addNote, updateNotePosition, deleteNote, duplicateNote } = useNotesStore()
   const [snapX, setSnapX] = useState<number | undefined>(undefined)
   const [snapY, setSnapY] = useState<number | undefined>(undefined)
   const [metrics, setMetrics] = useState<any[]>([])
-  const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
+  
+  // MUDANÇA: Agora é um Array para suportar múltiplas seleções
+  const [selectedNotes, setSelectedNotes] = useState<string[]>([])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
   const SNAP_THRESHOLD = 15 
 
+  // Controlador de Teclado Multi-Seleção
+  // Controlador de Teclado Multi-Seleção, Alinhamento e Duplicação
   useEffect(() => {
-    if (!selectedNoteId) return;
+    if (selectedNotes.length === 0) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement?.tagName === 'TEXTAREA') return;
 
-      const note = notes.find(n => n.id === selectedNoteId);
-      if (!note) return;
-
       const step = e.shiftKey ? 10 : 1;
 
-      switch (e.key) {
-        case 'Delete':
-        case 'Backspace':
-          deleteNote(selectedNoteId);
-          setSelectedNoteId(null);
-          break;
-        case 'ArrowUp':
-          updateNotePosition(selectedNoteId, note.x, note.y - step);
-          break;
-        case 'ArrowDown':
-          updateNotePosition(selectedNoteId, note.x, note.y + step);
-          break;
-        case 'ArrowLeft':
-          updateNotePosition(selectedNoteId, note.x - step, note.y);
-          break;
-        case 'ArrowRight':
-          updateNotePosition(selectedNoteId, note.x + step, note.y);
-          break;
+      // VERIFICA SE O CTRL OU CMD ESTÁ PRESSIONADO
+      if (e.ctrlKey || e.metaKey) {
+        
+        // 1. DUPLICAR (Ctrl + D)
+        if (e.key.toLowerCase() === 'd') {
+          e.preventDefault(); // Evita que o navegador tente adicionar aos favoritos
+          selectedNotes.forEach(id => duplicateNote(id));
+          return;
+        }
+
+        // 2. ALINHAR E DISTRIBUIR HORIZONTALMENTE (Ctrl + [ )
+        if (e.key === '[') {
+          e.preventDefault();
+          if (selectedNotes.length > 1) {
+            const activeNotes = selectedNotes
+              .map(id => notes.find(n => n.id === id))
+              .filter(Boolean) as typeof notes;
+
+            activeNotes.sort((a, b) => a.x - b.x); // Ordena da esquerda para a direita
+            const anchorY = activeNotes[0].y;      // Trava no eixo Y
+
+            if (activeNotes.length === 2) {
+              activeNotes.forEach(note => updateNotePosition(note.id, note.x, anchorY));
+            } else {
+              const firstX = activeNotes[0].x;
+              const lastX = activeNotes[activeNotes.length - 1].x;
+              const gap = (lastX - firstX) / (activeNotes.length - 1);
+
+              activeNotes.forEach((note, index) => {
+                updateNotePosition(note.id, firstX + (gap * index), anchorY);
+              });
+            }
+          }
+          return;
+        }
+
+        // 3. ALINHAR E DISTRIBUIR VERTICALMENTE (Ctrl + ] )
+        if (e.key === ']') {
+          e.preventDefault();
+          if (selectedNotes.length > 1) {
+            const activeNotes = selectedNotes
+              .map(id => notes.find(n => n.id === id))
+              .filter(Boolean) as typeof notes;
+
+            activeNotes.sort((a, b) => a.y - b.y); // Ordena de cima para baixo
+            const anchorX = activeNotes[0].x;      // Trava no eixo X
+
+            if (activeNotes.length === 2) {
+              activeNotes.forEach(note => updateNotePosition(note.id, anchorX, note.y));
+            } else {
+              const firstY = activeNotes[0].y;
+              const lastY = activeNotes[activeNotes.length - 1].y;
+              const gap = (lastY - firstY) / (activeNotes.length - 1);
+
+              activeNotes.forEach((note, index) => {
+                updateNotePosition(note.id, anchorX, firstY + (gap * index));
+              });
+            }
+          }
+          return;
+        }
       }
+
+      // COMANDOS SEM CTRL (Deletar e Setas)
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        selectedNotes.forEach(id => deleteNote(id));
+        setSelectedNotes([]);
+        return;
+      }
+
+      selectedNotes.forEach(id => {
+        const note = notes.find(n => n.id === id);
+        if (!note) return;
+
+        switch (e.key) {
+          case 'ArrowUp':
+            updateNotePosition(id, note.x, note.y - step);
+            break;
+          case 'ArrowDown':
+            updateNotePosition(id, note.x, note.y + step);
+            break;
+          case 'ArrowLeft':
+            updateNotePosition(id, note.x - step, note.y);
+            break;
+          case 'ArrowRight':
+            updateNotePosition(id, note.x + step, note.y);
+            break;
+        }
+      });
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedNoteId, notes, updateNotePosition, deleteNote]);
+  }, [selectedNotes, notes, updateNotePosition, deleteNote, duplicateNote]);
+
+  // Função para lidar com o clique na nota verificando o Ctrl
+  const handleNoteSelect = (e: React.PointerEvent, id: string) => {
+    e.stopPropagation();
+    // Se estiver segurando Ctrl (Windows) ou Cmd (Mac)
+    if (e.ctrlKey || e.metaKey) {
+      setSelectedNotes(prev => 
+        prev.includes(id) ? prev.filter(n => n !== id) : [...prev, id]
+      );
+    } else {
+      // Se clicar normal, seleciona só ela
+      setSelectedNotes([id]);
+    }
+  };
 
   function handleDragStart() {
-    setSelectedNoteId(null);
+    // Mantém a seleção se for uma das selecionadas, senão limpa
+    // setSelectedNotes([]); <-- Removido para não perder seleção ao tentar arrastar
     const currentMetrics = notes.map(n => {
       const el = document.getElementById(`note-${n.id}`);
       const rect = el ? el.getBoundingClientRect() : { width: 280, height: 280 };
@@ -97,7 +183,11 @@ function App() {
       updateNotePosition(active.id as string, snapX ?? note.x + delta.x, snapY ?? note.y + delta.y);
     }
     setSnapX(undefined); setSnapY(undefined); setMetrics([]);
-    setSelectedNoteId(active.id as string);
+    
+    // Se não tinha segurado Ctrl, garante que ela fique selecionada sozinha no fim do drag
+    if (selectedNotes.length <= 1) {
+      setSelectedNotes([active.id as string]);
+    }
   }
 
   return (
@@ -111,8 +201,9 @@ function App() {
           overflow: 'hidden',
           userSelect: 'none' 
         }}
+        // Clicar no fundo limpa todas as seleções
         onPointerDown={(e) => {
-          if (e.target === e.currentTarget) setSelectedNoteId(null);
+          if (e.target === e.currentTarget) setSelectedNotes([]);
         }}
       >
         <div style={{ position: 'absolute', top: '40px', left: '48px', pointerEvents: 'none' }}>
@@ -125,8 +216,10 @@ function App() {
             {...note} 
             snapX={snapX} 
             snapY={snapY} 
-            isSelected={selectedNoteId === note.id}
-            onSelect={() => setSelectedNoteId(note.id)}
+            // Verifica se este ID está dentro do Array de selecionados
+            isSelected={selectedNotes.includes(note.id)}
+            // Passa o evento para a nota poder ler a tecla Ctrl
+            onSelect={(e: React.PointerEvent) => handleNoteSelect(e, note.id)}
           />
         ))}
 
@@ -146,4 +239,4 @@ function App() {
   )
 }
 
-export default App; 
+export default App;

@@ -20,7 +20,6 @@
   flex-direction: column;
   
   /* Habilita o redimensionamento nativo */
-  resize: both;
   overflow: hidden; 
   transition: box-shadow 0.3s ease;
 }
@@ -74,4 +73,14 @@
   background-image: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTIiIGhlaWdodD0iMTIiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSJnYmEoMCwwLDAsMC4yKSIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPjxwYXRoIGQ9Ik0yMSAxNUwxNSAyMU0yMSA5TDkgMjEiLz48L3N2Zz4=');
   background-repeat: no-repeat;
   background-position: bottom right;
+}
+
+.resizer {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 25px;
+  height: 25px;
+  cursor: nwse-resize;
+  z-index: 20;
 }
