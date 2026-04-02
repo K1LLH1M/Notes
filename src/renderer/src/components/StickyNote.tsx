@@ -6,8 +6,8 @@ export function StickyNote({ id, content, x, y, width, height, snapX, snapY, isS
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id });
   const updateContent = useNotesStore((state) => state.updateNoteContent);
   const updateNoteSize = useNotesStore((state) => state.updateNoteSize);
+  const saveSnapshot = useNotesStore((state) => state.saveSnapshot);
 
-  // Tamanhos iniciais caso a nota não tenha ainda no banco
   const currentWidth = width || 280;
   const currentHeight = height || 280;
 
@@ -26,8 +26,8 @@ export function StickyNote({ id, content, x, y, width, height, snapX, snapY, isS
     transform: getSnapTransform(),
     left: `${x}px`,
     top: `${y}px`,
-    width: `${currentWidth}px`,   // NOVO: Lê o tamanho do estado
-    height: `${currentHeight}px`, // NOVO: Lê o tamanho do estado
+    width: `${currentWidth}px`,
+    height: `${currentHeight}px`,
     zIndex: isDragging || isSelected ? 1000 : 1,
     transition: isDragging ? 'none' : 'transform 0.1s ease-out',
     boxShadow: isSelected 
@@ -36,11 +36,12 @@ export function StickyNote({ id, content, x, y, width, height, snapX, snapY, isS
   };
 
   // ==========================================
-  // O MOTOR DE RESIZE COM SNAPPING
+  // REDIMENSIONAMENTO INTELIGENTE
   // ==========================================
   const handleResizeStart = (e: React.PointerEvent) => {
-    e.stopPropagation(); // Impede que o Dnd-kit ache que estamos movendo a nota toda
-    onSelect(e); // Seleciona a nota
+    e.stopPropagation();
+    onSelect(e); // Avisa o App que esta nota foi clicada
+    saveSnapshot(); // Salva estado para o Ctrl+Z
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -48,36 +49,30 @@ export function StickyNote({ id, content, x, y, width, height, snapX, snapY, isS
     const startHeight = currentHeight;
     const SNAP_THRESHOLD = 15;
 
-    // Busca as notas fresquinhas da store para não usar estado velho
     const allNotes = useNotesStore.getState().notes;
 
     const onPointerMove = (moveEvent: PointerEvent) => {
       let newWidth = startWidth + (moveEvent.clientX - startX);
       let newHeight = startHeight + (moveEvent.clientY - startY);
 
-      // Procura por travas (Snaps) com outras notas
       allNotes.forEach(other => {
         if (other.id === id) return;
-        
         const otherWidth = other.width || 280;
         const otherHeight = other.height || 280;
 
-        // 1. LARGURA: Trava se a largura for igual OU se a borda direita alinhar com a direita de outra nota
         if (Math.abs(newWidth - otherWidth) < SNAP_THRESHOLD) {
-          newWidth = otherWidth; // Mesma largura
+          newWidth = otherWidth;
         } else if (Math.abs((x + newWidth) - (other.x + otherWidth)) < SNAP_THRESHOLD) {
-          newWidth = (other.x + otherWidth) - x; // Borda direita com borda direita
+          newWidth = (other.x + otherWidth) - x;
         }
 
-        // 2. ALTURA: Trava se a altura for igual OU se a borda inferior alinhar com a inferior de outra nota
         if (Math.abs(newHeight - otherHeight) < SNAP_THRESHOLD) {
-          newHeight = otherHeight; // Mesma altura
+          newHeight = otherHeight;
         } else if (Math.abs((y + newHeight) - (other.y + otherHeight)) < SNAP_THRESHOLD) {
-          newHeight = (other.y + otherHeight) - y; // Borda inferior com borda inferior
+          newHeight = (other.y + otherHeight) - y;
         }
       });
 
-      // Limites mínimos e máximos para a nota não quebrar o design
       newWidth = Math.max(250, Math.min(newWidth, 600));
       newHeight = Math.max(200, Math.min(newHeight, 600));
 
@@ -106,7 +101,6 @@ export function StickyNote({ id, content, x, y, width, height, snapX, snapY, isS
       className={styles.noteCard}
       onPointerDown={(e) => onSelect(e)} 
     >
-      {/* Área de Drag */}
       <div 
         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '40px', cursor: 'grab', zIndex: 10 }}
         {...listeners}
@@ -130,7 +124,6 @@ export function StickyNote({ id, content, x, y, width, height, snapX, snapY, isS
         </div>
       </div>
 
-      {/* NOVO: Puxador de Redimensionamento Inteligente */}
       <div 
         className={styles.resizer} 
         onPointerDown={handleResizeStart}
